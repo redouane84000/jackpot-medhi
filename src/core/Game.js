@@ -15,8 +15,8 @@ import { DevOverlay } from '../dev/DevOverlay.js';
 const MODEL_ENGINE = { vortex: 'v12', typhon: 'v8' };
 
 /**
- * Qualité de départ selon la carte graphique (nom exposé par WebGL) : cartes dédiées en haute qualité,
- * puces intégrées et mobiles en qualité basse, le reste en moyenne. L'adaptation en jeu affine ensuite.
+ * Qualité de départ : basse sur mobile et puces intégrées, moyenne ailleurs.
+ * On ne monte pas en « high » : le bloom plein écran et les ombres 2048 faisaient ramer la conduite.
  */
 function initialQuality(small) {
   try { const q = new URLSearchParams(location.search).get('q'); if (q === 'high' || q === 'medium' || q === 'low') return q; } catch (e) { /* ignore */ }
@@ -28,7 +28,6 @@ function initialQuality(small) {
     gl?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch (e) { /* ignore */ }
   if (small) return 'low';
-  if (/NVIDIA|GeForce|RTX|GTX|Quadro|Radeon RX|Radeon Pro|Apple M\d (Pro|Max|Ultra)/i.test(name)) return 'high';
   if (/Intel|UHD|Iris|Mali|Adreno|PowerVR|SwiftShader|llvmpipe|Radeon\(TM\)|Vega \d|Apple GPU/i.test(name)) return 'low';
   return 'medium';
 }
@@ -249,13 +248,13 @@ export class Game {
     const avg = this.ft / this.fn;
     this.ft = 0; this.fn = 0;
     if (this.sim.match.state === STATE.MENU && this.clock < 2.5) return;      // démarrage : compilations en cours
-    const order = ['low', 'medium', 'high'], i = order.indexOf(this.quality);
+    const order = ['low', 'medium'], i = Math.max(0, order.indexOf(this.quality === 'high' ? 'medium' : this.quality));
     if (avg > 0.024) { this.upT = 0; if (i > 0) this.setQuality(order[i - 1]); else if (this.view.dpr > 0.61) this.view.setDpr(Math.max(0.6, this.view.dpr - 0.1)); }
     else if (avg < 0.0125) {
       if (++this.upT < 8) return;
       this.upT = 0;
       if (this.view.dpr < Math.min(this.view.dprMax, 0.8) - 0.01 && i === 0) this.view.setDpr(Math.min(0.8, this.view.dpr + 0.1));
-      else if (i < 2 && !(this.small && i >= 1)) this.setQuality(order[i + 1]);
+      else if (i < order.length - 1 && !(this.small && i >= 1)) this.setQuality(order[i + 1]);
     } else this.upT = 0;
   }
 

@@ -8,7 +8,7 @@ import { Effects, PAL } from './Effects.js';
 import { PostFX } from './PostFX.js';
 import { SkidMarks } from './SkidMarks.js';
 
-const DPR_CAP = { high: 1.5, medium: 1.0, low: 0.8 };
+const DPR_CAP = { high: 1.15, medium: 1, low: 0.75 };
 
 /** Ciel panoramique (équirectangulaire) calculé une fois : le shader de nuages n'est plus exécuté à chaque image. */
 function bakeSky(renderer, sunDir) {
@@ -33,14 +33,14 @@ function bakeSky(renderer, sunDir) {
 export class GameView {
   constructor(canvas, sim, { small = false, models = ['vortex', 'typhon'], quality = 'medium' } = {}) {
     this.sim = sim; this.C = sim.C; this.small = small; this.quality = quality;
-    // Anticrénelage du tampon d'écran seulement sans composition (qualité basse) : sinon c'est la cible de rendu qui le fait
-    const renderer = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality === 'low', powerPreference: 'high-performance' });
-    setAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+    // Pas d'anticrénelage multisample : le stade est déjà dense, et le MSAA doublait le coût dès que la voiture bougeait.
+    const renderer = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    setAnisotropy(Math.min(4, renderer.capabilities.getMaxAnisotropy()));
     this.dprMax = Math.min(window.devicePixelRatio || 1, 1.5); this.dpr = Math.min(this.dprMax, DPR_CAP[quality]);
     renderer.setPixelRatio(this.dpr);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
-    renderer.shadowMap.enabled = true; renderer.shadowMap.type = quality === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
     const scene = this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.2, 3000);
     this.time = { value: 0 };
@@ -49,7 +49,7 @@ export class GameView {
     this.sunDir = new THREE.Vector3(0.42, 0.84, 0.34).normalize();          // depuis un pylône d'angle, très haut
     const key = this.sun = new THREE.DirectionalLight(0xfff4e8, 2.6);
     key.castShadow = true;
-    const SM = quality === 'high' ? 2048 : 1024; key.shadow.mapSize.set(SM, SM);
+    const SM = quality === 'low' ? 512 : 1024; key.shadow.mapSize.set(SM, SM);
     Object.assign(key.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 1, far: 260 });
     key.shadow.bias = -0.0005; key.shadow.normalBias = 0.03;
     scene.add(key, key.target);
@@ -130,7 +130,7 @@ export class GameView {
     if (Math.abs(d - this.dpr) > 0.01) this.setDpr(d);
     this.post.setQuality(q);
     this.arena.crowd.setDensity(q === 'high' ? 1 : q === 'medium' ? 0.6 : 0.3);
-    const SM = q === 'high' ? 2048 : q === 'medium' ? 1024 : 512;
+    const SM = q === 'low' ? 512 : 1024;
     if (this.sun.shadow.mapSize.x !== SM) { this.sun.shadow.mapSize.set(SM, SM); if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; } }
   }
 
@@ -138,14 +138,16 @@ export class GameView {
   update(dt, t, info) {
     this.time.value = t;
     const sim = this.sim;
+    const emitBoost = ((this._puff = ((this._puff | 0) + 1)) & 1) === 0;
     sim.cars.forEach((car, i) => {
       const pose = this.carPose(i), vis = this.cars[i];
       vis.update(pose.p, pose.q, car, dt, t);
-      if (car.boosting && dt > 0) {
+      if (car.boosting && dt > 0 && emitBoost) {
         vis.body.updateMatrixWorld(true);
         const back = this._b.set(0, 0, -1).applyQuaternion(pose.q), vel = car.body.linvel();
         const colors = car.team === 'blue' ? PAL.FIRE_BLUE : PAL.FIRE_ORANGE;
-        for (let k = 0; k < vis.exhausts.length; k++) if (k < 2 || Math.random() < 0.5) this.fx.boostPuff(vis.exhaustWorld(k, this._a), back, vel, colors, car.speed > 36 ? 1.5 : 1);
+        const n = vis.exhausts.length;
+        for (let k = 0; k < n; k += n > 2 ? 2 : 1) this.fx.boostPuff(vis.exhaustWorld(k, this._a), back, vel, colors, 1);
       }
       // Fumée de pneus en dérapage, traces de gomme
       if (dt > 0 && car.slip > 4 && car.grounded >= 2) {
@@ -166,11 +168,7 @@ export class GameView {
     this.camFill.position.copy(this.camera.position).add(this._a.set(0, 6, 0)); this.camFill.target.position.copy(this.carPose(0).p);
     this.fx.update(dt, this.camera);
     // Effets de vitesse : point de fuite = projection d'un point devant la voiture du joueur
-    const pc = this.carPose(0), car = sim.cars[0];
-    const ahead = this._v.set(0, 0, 30).applyQuaternion(pc.q).add(pc.p).project(this.camera);
-    const center = this._c.set(THREE.MathUtils.clamp(ahead.x * 0.5 + 0.5, 0.2, 0.8), THREE.MathUtils.clamp(ahead.y * 0.5 + 0.5, 0.2, 0.8));
-    const sp = THREE.MathUtils.smoothstep(car.speed, 27, 42) * (info.cinematic ? 0 : 1);
-    this.post.update(dt, t, { speed: sp * (car.boosting ? 1 : 0.6), center, flash: info.flash || 0 });
+    this.post.update(dt, t, { flash: info.flash || 0 });
   }
 
   render() { this.post.render(); }

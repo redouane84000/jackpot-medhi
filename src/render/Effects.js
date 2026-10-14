@@ -22,7 +22,7 @@ export const PAL = {
 export class Effects {
   constructor(scene, { small = false } = {}) {
     this.scene = scene;
-    const PM = this.PM = small ? 1400 : 2600;
+    const PM = this.PM = small ? 500 : 800;
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3)); g.setIndex([0, 1, 2, 0, 2, 3]);
     const A = (n, k) => new THREE.InstancedBufferAttribute(new Float32Array(n * k), k).setUsage(THREE.DynamicDrawUsage);
@@ -104,8 +104,7 @@ export class Effects {
 
   /** Flamme et traînée de boost depuis un échappement (position monde, direction arrière). */
   boostPuff(p, back, vel, colors, intensity = 1) {
-    for (let i = 0; i < 2; i++) this.emit(p.x, p.y, p.z, back.x * rand(6, 11) + vel.x * .6, back.y * 4 + rand(-.3, .5), back.z * rand(6, 11) + vel.z * .6, rand(.15, .3), rand(.18, .28) * intensity, rand(.35, .6) * intensity, .75, pick(colors), 3, -.2);
-    if (Math.random() < .35) this.emit(p.x, p.y, p.z, back.x * 3 + vel.x * .3, rand(.2, .8), back.z * 3 + vel.z * .3, rand(.5, .9), .2, rand(.6, 1.0), .12, pick(PAL.SMOKE), 1.6, -.25);
+    this.emit(p.x, p.y, p.z, back.x * rand(6, 11) + vel.x * .6, back.y * 4 + rand(-.3, .5), back.z * rand(6, 11) + vel.z * .6, rand(.12, .22), rand(.16, .24) * intensity, rand(.28, .45) * intensity, .7, pick(colors), 3, -.2);
   }
 
   dust(x, z, n, s = 1) { for (let i = 0; i < n; i++) { randUnit(this._a); this.emit(x + this._a.x * .4, .15, z + this._a.z * .4, this._a.x * rand(1, 4), rand(.3, 1.4), this._a.z * rand(1, 4), rand(.6, 1.2), .2 * s, rand(.7, 1.3) * s, .3, pick(PAL.DUST), 2.2, -.1); } }
@@ -133,9 +132,18 @@ export class Effects {
       b.rr = b.tumb ? rand(4, 8) * (Math.random() < .5 ? -1 : 1) : rand(-12, 12);
     }
     for (const co of this.coins) { randUnit(this._a); co.p.copy(C_EX).addScaledVector(this._a, rand(0, .8)); co.v.set(this._a.x * rand(3, 13), rand(9, 22), out * rand(6, 22) + this._a.z * 4); randUnit(co.w).multiplyScalar(rand(8, 18)); randUnit(this._b); co.q.setFromAxisAngle(this._b, rand(0, TAU)); Object.assign(co, { on: true, st: 0, life: rand(7, 9) }); }
+    this.moneyLive = true;
   }
 
-  clearMoney() { for (const o of [...this.bills, ...this.coins]) o.on = false; this.jets = []; this.rockets = []; }
+  clearMoney() {
+    for (const o of [...this.bills, ...this.coins]) o.on = false;
+    this.jets = []; this.rockets = [];
+    if (!this.moneyLive) return;
+    this.moneyLive = false;
+    for (let i = 0; i < this.NB; i++) this.billsIM.setMatrixAt(i, this.ZERO);
+    for (let i = 0; i < this.NC; i++) this.coinsIM.setMatrixAt(i, this.ZERO);
+    this.billsIM.instanceMatrix.needsUpdate = true; this.coinsIM.instanceMatrix.needsUpdate = true;
+  }
 
   /**
    * Pyrotechnie de but : jets de flammes aux montants de la cage et feux d'artifice au-dessus du virage,
@@ -203,12 +211,15 @@ export class Effects {
       if (te > 1.3) this.boom = null;
     }
 
-    // Billets : chute planante, balancement, pose sur le sol
+    // Billets et pièces : seulement pendant l'animation de but
+    if (this.moneyLive) {
     const a = this._a, q = this._q, e = this._e, m = this._m, s = this._s;
+    let live = false;
     for (let i = 0; i < this.NB; i++) {
       const b = this.bills[i];
       if (!b.on) { this.billsIM.setMatrixAt(i, this.ZERO); continue; }
       b.life -= dt; if (b.life <= 0) { b.on = false; this.billsIM.setMatrixAt(i, this.ZERO); continue; }
+      live = true;
       if (b.st === 0) {
         const age = this.t - b.t0;
         if (age < .6) { b.v.y -= 9.8 * dt; b.v.multiplyScalar(Math.exp(-dt * .8)); }
@@ -234,6 +245,7 @@ export class Effects {
       const c = this.coins[i];
       if (!c.on) { this.coinsIM.setMatrixAt(i, this.ZERO); continue; }
       c.life -= dt; if (c.life <= 0) { c.on = false; this.coinsIM.setMatrixAt(i, this.ZERO); continue; }
+      live = true;
       if (c.st === 0) {
         c.v.y -= 9.8 * dt; c.v.multiplyScalar(Math.exp(-dt * .5)); c.p.addScaledVector(c.v, dt);
         const wl = c.w.length(); if (wl > 1e-5) { q.setFromAxisAngle(a.copy(c.w).multiplyScalar(1 / wl), wl * dt); c.q.premultiply(q); }
@@ -243,5 +255,7 @@ export class Effects {
       m.compose(c.p, c.q, s.setScalar(sc)); this.coinsIM.setMatrixAt(i, m);
     }
     this.coinsIM.instanceMatrix.needsUpdate = true;
+    if (!live) this.moneyLive = false;
+    }
   }
 }

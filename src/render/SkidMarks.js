@@ -41,6 +41,7 @@ export class SkidMarks {
       this.pos.set([pr.x - sx, y, pr.z - sz, pr.x + sx, y, pr.z + sz, p.x + sx, y, p.z + sz, p.x - sx, y, p.z - sz], i * 12);
       this.info.set([this.t, pr.a, this.t, pr.a, this.t, a, this.t, a], i * 8);
       this.prev.set(key, { x: p.x, z: p.z, a });
+      this.posAttr.addUpdateRange(i * 12, 12); this.infoAttr.addUpdateRange(i * 8, 8);
       this.posAttr.needsUpdate = true; this.infoAttr.needsUpdate = true;
     }
   }

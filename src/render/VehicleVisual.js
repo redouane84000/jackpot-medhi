@@ -100,7 +100,7 @@ export class VehicleVisual {
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader: `uniform float uA, uT; uniform vec3 uCol; varying vec2 vUv; void main(){ float v = vUv.y; float fl = .75 + .25 * sin(uT * 80.0 + vUv.x * 30.0) * sin(uT * 47.0);
         vec3 c = mix(uCol, vec3(1.0, .95, .85), pow(v, 3.0)); c = mix(c, vec3(1.0), pow(v, 10.0));
-        gl_FragColor = vec4(c * 2.2, pow(v, 1.3) * uA * fl); }` });
+        gl_FragColor = vec4(min(c * 1.15, vec3(1.4)), pow(v, 1.3) * uA * fl); }` });
     this.flameGeo = new THREE.ConeGeometry(0.065, 1, 18, 1, true); this.flameGeo.translate(0, 0.5, 0); this.flameGeo.rotateX(-Math.PI / 2);
     this.setModel(model);
 
