@@ -15,10 +15,10 @@ import { DevOverlay } from '../dev/DevOverlay.js';
 const MODEL_ENGINE = { vortex: 'v12', typhon: 'v8' };
 
 /**
- * Qualité de départ : basse sur mobile et puces intégrées, moyenne ailleurs.
- * On ne monte pas en « high » : le bloom plein écran et les ombres 2048 faisaient ramer la conduite.
+ * Même qualité visuelle sur téléphone et bureau. On ne descend en « low » que pour les
+ * backends logiciels (pas d'écran) : le flou venait d'un pixel ratio trop bas, pas du GPU.
  */
-function initialQuality(small) {
+function initialQuality() {
   try { const q = new URLSearchParams(location.search).get('q'); if (q === 'high' || q === 'medium' || q === 'low') return q; } catch (e) { /* ignore */ }
   let name = '';
   try {
@@ -27,8 +27,7 @@ function initialQuality(small) {
     name = gl ? String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : '';
     gl?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch (e) { /* ignore */ }
-  if (small) return 'low';
-  if (/Intel|UHD|Iris|Mali|Adreno|PowerVR|SwiftShader|llvmpipe|Radeon\(TM\)|Vega \d|Apple GPU/i.test(name)) return 'low';
+  if (/SwiftShader|llvmpipe/i.test(name)) return 'low';
   return 'medium';
 }
 const otherModel = m => (m === 'vortex' ? 'typhon' : 'vortex');
@@ -40,7 +39,7 @@ const otherModel = m => (m === 'vortex' ? 'typhon' : 'vortex');
 export class Game {
   constructor(RAPIER, { canvas, uiRoot }) {
     const C = this.C = CONFIG;
-    this.small = Math.min(screen.width, screen.height) < 700;
+    this.small = Math.min(screen.width, screen.height) < 700 || Math.min(innerWidth, innerHeight) < 820;
     this.coarse = matchMedia('(pointer: coarse)').matches;
     this.reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     let saved = 'typhon'; try { saved = localStorage.getItem('ja-car') || 'typhon'; } catch (e) { /* stockage indisponible */ }
@@ -53,7 +52,7 @@ export class Game {
     this.brain = new BotBrain(C, { skill: 0.72 });
     this.sim.setController(1, new VehicleController(this.brain));
     this.hud = new HUD(uiRoot, { models: C.CAR_MODELS, model: this.playerModel });
-    this.quality = initialQuality(this.small);
+    this.quality = initialQuality();
     this.view = new GameView(canvas, this.sim, { small: this.small, models, quality: this.quality });
     this.view.setQuality(this.quality);
     this.rig = new CameraRig(this.view.camera, C, this.sim.layout);
@@ -66,7 +65,12 @@ export class Game {
     this.focus = new THREE.Vector3();
     if (this.coarse) this.input.mountTouch(uiRoot);
     this._wire();
-    addEventListener('resize', () => { this.view.resize(); this.rig.baseFov = innerWidth < innerHeight ? 88 : this.small ? 76 : 70; });
+    addEventListener('resize', () => {
+      this.small = Math.min(screen.width, screen.height) < 700 || Math.min(innerWidth, innerHeight) < 820;
+      this.view.setViewport(this.small);
+      this.view.resize();
+      this.rig.baseFov = innerWidth < innerHeight ? 88 : this.small ? 76 : 70;
+    });
   }
 
   _wire() {
@@ -249,12 +253,16 @@ export class Game {
     this.ft = 0; this.fn = 0;
     if (this.sim.match.state === STATE.MENU && this.clock < 2.5) return;      // démarrage : compilations en cours
     const order = ['low', 'medium'], i = Math.max(0, order.indexOf(this.quality === 'high' ? 'medium' : this.quality));
-    if (avg > 0.024) { this.upT = 0; if (i > 0) this.setQuality(order[i - 1]); else if (this.view.dpr > 0.61) this.view.setDpr(Math.max(0.6, this.view.dpr - 0.1)); }
-    else if (avg < 0.0125) {
+    const floor = this.small ? 1.5 : 1;
+    if (avg > 0.032) {
+      this.upT = 0;
+      if (i > 0) this.setQuality(order[i - 1]);
+      else if (this.view.dpr > floor + 0.05) this.view.setDpr(Math.max(floor, this.view.dpr - 0.15));
+    } else if (avg < 0.014) {
       if (++this.upT < 8) return;
       this.upT = 0;
-      if (this.view.dpr < Math.min(this.view.dprMax, 0.8) - 0.01 && i === 0) this.view.setDpr(Math.min(0.8, this.view.dpr + 0.1));
-      else if (i < order.length - 1 && !(this.small && i >= 1)) this.setQuality(order[i + 1]);
+      if (this.view.dpr < this.view.dprMax - 0.05) this.view.setDpr(Math.min(this.view.dprMax, this.view.dpr + 0.15));
+      else if (i < order.length - 1) this.setQuality(order[i + 1]);
     } else this.upT = 0;
   }
 

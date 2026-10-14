@@ -8,7 +8,12 @@ import { Effects, PAL } from './Effects.js';
 import { PostFX } from './PostFX.js';
 import { SkidMarks } from './SkidMarks.js';
 
-const DPR_CAP = { high: 1.15, medium: 1, low: 0.75 };
+/** Résolution d'affichage : le téléphone a un pixel ratio 2–3, il faut le suivre sinon tout est flou. */
+function resolveDpr(quality, small) {
+  const native = window.devicePixelRatio || 1;
+  const cap = quality === 'low' ? (small ? 1.5 : 1) : (small ? 2 : 1.25);
+  return Math.min(native, cap);
+}
 
 /** Ciel panoramique (équirectangulaire) calculé une fois : le shader de nuages n'est plus exécuté à chaque image. */
 function bakeSky(renderer, sunDir) {
@@ -36,7 +41,7 @@ export class GameView {
     // Pas d'anticrénelage multisample : le stade est déjà dense, et le MSAA doublait le coût dès que la voiture bougeait.
     const renderer = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     setAnisotropy(Math.min(4, renderer.capabilities.getMaxAnisotropy()));
-    this.dprMax = Math.min(window.devicePixelRatio || 1, 1.5); this.dpr = Math.min(this.dprMax, DPR_CAP[quality]);
+    this.dprMax = resolveDpr('medium', small); this.dpr = resolveDpr(quality, small);
     renderer.setPixelRatio(this.dpr);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
@@ -123,10 +128,18 @@ export class GameView {
 
   setDpr(d) { this.dpr = d; this.renderer.setPixelRatio(d); this.resize(); }
 
+  /** Passe en définition téléphone (pixel ratio 2) ou bureau sans relancer le jeu. */
+  setViewport(small) {
+    if (small === this.small) return;
+    this.small = small;
+    this.dprMax = resolveDpr('medium', small);
+    this.setQuality(this.quality);
+  }
+
   /** Niveau de qualité global : 'high' | 'medium' | 'low' (définition, post-traitement, ombres, densité du public). */
   setQuality(q) {
     this.quality = q;
-    const d = Math.min(this.dprMax, DPR_CAP[q]);
+    const d = resolveDpr(q, this.small);
     if (Math.abs(d - this.dpr) > 0.01) this.setDpr(d);
     this.post.setQuality(q);
     this.arena.crowd.setDensity(q === 'high' ? 1 : q === 'medium' ? 0.6 : 0.3);
